@@ -10,8 +10,8 @@ smplx==0.1.28
 tqdm
 yacs
 numba
-#opencv-contrib-python==4.8.1.78
-#opencv-python==4.8.1.78
+opencv-contrib-python==4.8.1.78
+opencv-python==4.8.1.78
 tensorboardx
 filterpy
 cython
