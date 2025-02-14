@@ -1,19 +1,20 @@
 import os
-import argparse
-import torch
-from torchvision.io import write_video
-import librosa
 import time
+import torch
+import librosa
+import argparse
 import numpy as np
+
 from tqdm import tqdm
-from emage_utils.motion_io import beat_format_save
 from emage_utils import fast_render
+from emage_utils.motion_io import beat_format_save
+from torchvision.io import write_video
 from models.camn_audio import CamnAudioModel
 
 
 def inference(model, audio_path, device, save_folder, sr, pose_fps, seed_frames):
-    audio, _ = librosa.load(audio_path, sr=sr)
-    audio = torch.from_numpy(audio).to(device).unsqueeze(0)
+    audio, _   = librosa.load(audio_path, sr=sr)
+    audio      = torch.from_numpy(audio).to(device).unsqueeze(0)
     speaker_id = torch.zeros(1,1).long().to(device)
     with torch.no_grad():
         motion_pred = model(audio, speaker_id, seed_frames=seed_frames, seed_motion=None)["motion_axis_angle"]
@@ -25,7 +26,7 @@ def inference(model, audio_path, device, save_folder, sr, pose_fps, seed_frames)
 
 
 def visualize_one(save_folder, audio_path, nopytorch3d=False):
-    npz_path = os.path.join(save_folder, f"{os.path.splitext(os.path.basename(audio_path))[0]}_output.npz")
+    npz_path    = os.path.join(save_folder, f"{os.path.splitext(os.path.basename(audio_path))[0]}_output.npz")
     motion_dict = np.load(npz_path, allow_pickle=True)
     if not nopytorch3d:
         from emage_utils.npz2pose import render2d
@@ -46,7 +47,7 @@ def main():
     os.makedirs(args.save_folder, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = CamnAudioModel.from_pretrained("H-Liu1997/camn_audio").to(device)
+    model  = CamnAudioModel.from_pretrained("H-Liu1997/camn_audio").to(device)
     model.eval()
 
     audio_files = [os.path.join(args.audio_folder, f) for f in os.listdir(args.audio_folder) if f.endswith(".wav")]
