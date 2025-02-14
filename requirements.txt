@@ -10,8 +10,8 @@ smplx==0.1.28
 tqdm
 yacs
 numba
-opencv-contrib-python==4.8.1.78
-opencv-python==4.8.1.78
+#opencv-contrib-python==4.8.1.78
+#opencv-python==4.8.1.78
 tensorboardx
 filterpy
 cython
@@ -19,7 +19,7 @@ chumpy==0.70.0
 Pillow==9.5.0
 trimesh
 pyrender
-matplotlib
+#matplotlib
 json_tricks
 torchgeometry
 einops
@@ -45,8 +45,8 @@ imageio==2.33.0
 imageio-ffmpeg==0.4.9
 omegaconf==2.2.3
 open-clip-torch==2.20.0
-transformers==4.30.2
-torchvision
+#transformers==4.30.2
+#torchvision
 moviepy==1.0.3
 igraph
 ConfigArgParse
