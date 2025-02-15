@@ -1,30 +1,32 @@
 import os
-import shutil
-import argparse
-import random
-import numpy as np
-from datetime import datetime
-from tqdm import tqdm
-import importlib
 import copy
-import librosa
-from pathlib import Path
 import json
 import time
+import wandb
 import torch
+import random
+import shutil
+import librosa
+import argparse
+import importlib
+import numpy as np
+
+from tqdm import tqdm
+from pathlib import Path
+from datetime import datetime
+
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
-import wandb
 
-from diffusers.optimization import get_scheduler
 from omegaconf import OmegaConf
+from diffusers.optimization import get_scheduler
 
-from emage_evaltools.mertic import FGD, BC, L1div
-from emage_utils.motion_io import beat_format_load, beat_format_save, MASK_DICT, recover_from_mask, recover_from_mask_ts
 import emage_utils.rotation_conversions as rc
 from emage_utils import fast_render
+from emage_evaltools.mertic import FGD, BC, L1div
+from emage_utils.motion_io import beat_format_load, beat_format_save, MASK_DICT, recover_from_mask, recover_from_mask_ts
 from emage_utils.motion_rep_transfer import get_motion_rep_numpy
 
 
@@ -61,15 +63,15 @@ def inference_fn(cfg, model, device, test_path, save_path):
     for data_meta_path in test_path:
         test_list.extend(json.load(open(data_meta_path, "r")))
     test_list = [item for item in test_list if item.get("mode") == "test"]
-    seen_ids = set()
+    seen_ids  = set()
     test_list = [item for item in test_list if not (item["video_id"] in seen_ids or seen_ids.add(item["video_id"]))]
 
-    save_list = []
-    start_time = time.time()
+    save_list    = []
+    start_time   = time.time()
     total_length = 0
     for test_file in tqdm(test_list, desc="Testing"):
-        audio, _ = librosa.load(test_file["audio_path"], sr=cfg.audio_sr)
-        audio = torch.from_numpy(audio).to(device).unsqueeze(0)
+        audio, _   = librosa.load(test_file["audio_path"], sr=cfg.audio_sr)
+        audio      = torch.from_numpy(audio).to(device).unsqueeze(0)
         speaker_id = torch.zeros(1,1).to(device).long()
         motion_pred = actual_model(audio, speaker_id, seed_frames=4, seed_motion=None)["motion_axis_angle"]
         t = motion_pred.shape[1]
@@ -98,14 +100,14 @@ def train_val_fn(cfg, batch, model, device, mode="train", optimizer=None, lr_sch
     audio = batch["audio"].to(device)
     bs, t, jc = motion_gt.shape
     j = jc // 3
-    speaker_id = torch.zeros(bs,1).to(device).long()
-    motion_gt = rc.axis_angle_to_rotation_6d(motion_gt.reshape(bs,t,j,3)).reshape(bs, t, j*6)
+    speaker_id  = torch.zeros(bs,1).to(device).long()
+    motion_gt   = rc.axis_angle_to_rotation_6d(motion_gt.reshape(bs,t,j,3)).reshape(bs, t, j*6)
     motion_pred = model(audio, speaker_id, seed_frames=4, seed_motion=motion_gt, return_axis_angle=False)["motion"]
     motion_pred = rc.rotation_6d_to_matrix(motion_pred.reshape(bs,t,j,6))
-    motion_gt = rc.rotation_6d_to_matrix(motion_gt.reshape(bs,t,j,6))
+    motion_gt   = rc.rotation_6d_to_matrix(motion_gt.reshape(bs,t,j,6))
     loss = GeodesicLossFn(motion_pred, motion_gt)
     loss_dict = {"loss": loss}
-    all_loss = sum(loss_dict.values())
+    all_loss  = sum(loss_dict.values())
     loss_dict["all_loss"] = all_loss
 
     if mode == "train":
@@ -171,11 +173,11 @@ def main(cfg):
 
     # dataset
     train_dataset = init_class(cfg.data.name_pyfile, cfg.data.class_name, cfg, split='train')
-    test_dataset = init_class(cfg.data.name_pyfile, cfg.data.class_name, cfg, split='test')
+    test_dataset  = init_class(cfg.data.name_pyfile, cfg.data.class_name, cfg, split='test')
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-    test_sampler = torch.utils.data.distributed.DistributedSampler(test_dataset)
-    train_loader = DataLoader(train_dataset, batch_size=cfg.data.train_bs, sampler=train_sampler, drop_last=True, num_workers=8)
-    test_loader = DataLoader(test_dataset, batch_size=cfg.data.train_bs, sampler=test_sampler, drop_last=False, num_workers=8)
+    test_sampler  = torch.utils.data.distributed.DistributedSampler(test_dataset)
+    train_loader  = DataLoader(train_dataset, batch_size=cfg.data.train_bs, sampler=train_sampler, drop_last=True, num_workers=8)
+    test_loader   = DataLoader(test_dataset, batch_size=cfg.data.train_bs, sampler=test_sampler, drop_last=False, num_workers=8)
 
     # resume
     if cfg.resume_from_checkpoint:
@@ -189,11 +191,11 @@ def main(cfg):
     if cfg.test:
         iteration = 0
 
-    max_epochs = (cfg.solver.max_train_steps // len(train_loader)) + (1 if cfg.solver.max_train_steps % len(train_loader) != 0 else 0)
+    max_epochs  = (cfg.solver.max_train_steps // len(train_loader)) + (1 if cfg.solver.max_train_steps % len(train_loader) != 0 else 0)
     start_epoch = iteration // len(train_loader)
     start_step_in_epoch = iteration % len(train_loader)
     fgd_evaluator = FGD(download_path="./emage_evaltools/")
-    bc_evaluator = BC(download_path="./emage_evaltools/", sigma=0.3, order=7)
+    bc_evaluator  = BC(download_path="./emage_evaltools/", sigma=0.3, order=7)
     l1div_evaluator= L1div()
     loss_meters = {}
     loss_meters_val = {}
@@ -250,7 +252,7 @@ def main(cfg):
             # train
             data_time = time.time() - data_start
             loss_dict = train_val_fn(cfg, batch, model, device, mode="train", optimizer=optimizer, lr_scheduler=lr_scheduler)
-            net_time = time.time() - data_start - data_time
+            net_time  = time.time() - data_start - data_time
             log_train_val(cfg, loss_dict, local_rank, loss_meters, pbar, epoch, max_epochs, iteration, net_time, data_time, optimizer, "Train")
             data_start = time.time()
 
@@ -322,8 +324,8 @@ def evaluation_fn(joint_mask, gt_list, pred_list, fgd_evaluator, bc_evaluator, l
        
     metrics = {}
     metrics["fgd"] = fgd_evaluator.compute()
-    metrics["bc"] = bc_evaluator.avg()
-    metrics["l1"] = l1_evaluator.avg()
+    metrics["bc"]  = bc_evaluator.avg()
+    metrics["l1"]  = l1_evaluator.avg()
     # metrics["lvd"] = lvd_evaluator.avg()
     # metrics["mse"] = mse_evaluator.avg()
     return metrics
@@ -346,7 +348,7 @@ def visualization_fn(pred_list, save_path, gt_list=None, only_check_one=True):
                 print(f"Missing prediction for {pred_list[i]['video_id']}")
                 continue
             npz_gt = np.load(gt_file["motion_path"], allow_pickle=True)
-            t  = npz_gt["poses"].shape[0]
+            t      = npz_gt["poses"].shape[0]
             np.savez(
                 os.path.join(save_path, f"{pred_list[i]['video_id']}_transpad.npz"),
                 betas=npz_pred['betas'][:t],
@@ -382,7 +384,7 @@ def log_test(model, metrics, iteration, best_mertics, best_iteration, cfg, local
             if videos_to_log:
                 wandb.log({"test/videos": videos_to_log}, step=iteration)
         if metrics["fgd"] < best_mertics:
-            best_mertics = metrics["fgd"]
+            best_mertics   = metrics["fgd"]
             best_iteration = iteration
             model.module.save_pretrained(os.path.join(experiment_ckpt_dir, "test_best"))
         # print(metrics, best_mertics, best_iteration)
@@ -392,7 +394,7 @@ def log_test(model, metrics, iteration, best_mertics, best_iteration, cfg, local
 
 def log_metric_with_box(message):
     box_width = len(message) + 2
-    border = "-" * box_width
+    border    = "-" * box_width
     print(f"\n{border}")
     print(f"|{message}|")
     print(f"{border}\n")
@@ -437,16 +439,16 @@ def save_last_and_best_ckpt(model, optimizer, lr_scheduler, iteration, save_dir,
 
 def init_hf_class(module_name, class_name, config, **kwargs):
     module = importlib.import_module(module_name)
-    model_class = getattr(module, class_name)
+    model_class  = getattr(module, class_name)
     config_class = model_class.config_class
-    config = config_class(config_obj=config)
+    config   = config_class(config_obj=config)
     instance = model_class(config, **kwargs)
     return instance
 
 def init_class(module_name, class_name, config, **kwargs):
     module = importlib.import_module(module_name)
     model_class = getattr(module, class_name)
-    instance = model_class(config, **kwargs)
+    instance    = model_class(config, **kwargs)
     return instance
 
 def seed_everything(seed):
@@ -469,7 +471,7 @@ def init_env():
     parser.add_argument("--evaluation", action="store_true")
     parser.add_argument("--test", action="store_true")
     parser.add_argument('overrides', nargs=argparse.REMAINDER)
-    args = parser.parse_args()
+    args   = parser.parse_args()
     config = OmegaConf.load(args.config)
     config.exp_name = os.path.splitext(os.path.basename(args.config))[0]
 
