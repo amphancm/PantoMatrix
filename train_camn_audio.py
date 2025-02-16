@@ -35,9 +35,9 @@ class GeodesicLoss(nn.Module):
     def __init__(self):
         super(GeodesicLoss, self).__init__()
     def compute_geodesic_distance(self, m1, m2):
-        m1 = m1.reshape(-1, 3, 3)
-        m2 = m2.reshape(-1, 3, 3)
-        m = torch.bmm(m1, m2.transpose(1, 2))
+        m1  = m1.reshape(-1, 3, 3)
+        m2  = m2.reshape(-1, 3, 3)
+        m   = torch.bmm(m1, m2.transpose(1, 2))
         cos = (m[:, 0, 0] + m[:, 1, 1] + m[:, 2, 2] - 1) / 2
         cos = torch.clamp(cos, min=-1 + 1E-6, max=1-1E-6)
         theta = torch.acos(cos)
@@ -106,8 +106,8 @@ def train_val_fn(cfg, batch, model, device, mode="train", optimizer=None, lr_sch
     motion_pred = rc.rotation_6d_to_matrix(motion_pred.reshape(bs,t,j,6))
     motion_gt   = rc.rotation_6d_to_matrix(motion_gt.reshape(bs,t,j,6))
     loss = GeodesicLossFn(motion_pred, motion_gt)
-    loss_dict = {"loss": loss}
-    all_loss  = sum(loss_dict.values())
+    loss_dict   = {"loss": loss}
+    all_loss    = sum(loss_dict.values())
     loss_dict["all_loss"] = all_loss
 
     if mode == "train":
@@ -119,9 +119,9 @@ def train_val_fn(cfg, batch, model, device, mode="train", optimizer=None, lr_sch
 
     if mode == "val":
         motion_pred = rc.matrix_to_rotation_6d(motion_pred).reshape(bs, t, j*6)
-        motion_gt = rc.matrix_to_rotation_6d(motion_gt).reshape(bs, t, j*6)
+        motion_gt   = rc.matrix_to_rotation_6d(motion_gt).reshape(bs, t, j*6)
         padded_pred = recover_from_mask_ts(motion_pred, joint_mask)
-        padded_gt = recover_from_mask_ts(motion_gt, joint_mask)
+        padded_gt   = recover_from_mask_ts(motion_gt, joint_mask)
         fgd_evaluator.update(padded_pred, padded_gt)
     return loss_dict
 
@@ -132,9 +132,9 @@ def main(cfg):
     os.environ["WANDB_API_KEY"] = cfg.wandb_key
     local_rank = int(os.environ["LOCAL_RANK"]) if "LOCAL_RANK" in os.environ else 0
     torch.cuda.set_device(local_rank)
-    device = torch.device("cuda", local_rank)
+    device     = torch.device("cuda", local_rank)
     torch.distributed.init_process_group(backend="nccl")
-    log_dir = os.path.join(cfg.output_dir, cfg.exp_name)
+    log_dir    = os.path.join(cfg.output_dir, cfg.exp_name)
     experiment_ckpt_dir = os.path.join(log_dir, "checkpoints")
     os.makedirs(experiment_ckpt_dir, exist_ok=True)
 
@@ -196,8 +196,8 @@ def main(cfg):
     start_step_in_epoch = iteration % len(train_loader)
     fgd_evaluator = FGD(download_path="./emage_evaltools/")
     bc_evaluator  = BC(download_path="./emage_evaltools/", sigma=0.3, order=7)
-    l1div_evaluator= L1div()
-    loss_meters = {}
+    l1div_evaluator = L1div()
+    loss_meters     = {}
     loss_meters_val = {}
     best_fgd_val = np.inf
     best_fgd_iteration_val= 0
@@ -229,7 +229,7 @@ def main(cfg):
 
             # validation
             if iteration % cfg.validation.validation_steps == 0:
-                loss_meters = {}
+                loss_meters     = {}
                 loss_meters_val = {}
                 fgd_evaluator.reset()
                 pbar_val = tqdm(test_loader, leave=True)
@@ -280,52 +280,52 @@ def evaluation_fn(joint_mask, gt_list, pred_list, fgd_evaluator, bc_evaluator, l
             print(f"Missing prediction for {test_file['video_id']}")
             continue
         # print(test_file["motion_path"], pred_file["motion_path"])
-        gt_dict = beat_format_load(test_file["motion_path"], joint_mask)
+        gt_dict   = beat_format_load(test_file["motion_path"], joint_mask)
         pred_dict = beat_format_load(pred_file["motion_path"], joint_mask)
 
-        motion_gt = gt_dict["poses"]
+        motion_gt   = gt_dict["poses"]
         motion_pred = pred_dict["poses"]
-        # expressions_gt = gt_dict["expressions"]
+        # expressions_gt   = gt_dict["expressions"]
         # expressions_pred = pred_dict["expressions"]
         betas = gt_dict["betas"]
-        # motion_gt = recover_from_mask(motion_gt, joint_mask) # t1*165
+        # motion_gt   = recover_from_mask(motion_gt, joint_mask) # t1*165
         # motion_pred = recover_from_mask(motion_pred, joint_mask) # t2*165
     
         t = min(motion_gt.shape[0], motion_pred.shape[0])
-        motion_gt = motion_gt[:t]
+        motion_gt   = motion_gt[:t]
         motion_pred = motion_pred[:t]
-        # expressions_gt = expressions_gt[:t]
+        # expressions_gt   = expressions_gt[:t]
         # expressions_pred = expressions_pred[:t]
        
         # bc and l1 require position representation
         motion_position_pred = get_motion_rep_numpy(motion_pred, device=device, betas=betas)["position"] # t*55*3
         motion_position_pred = motion_position_pred.reshape(t, -1)
         # ignore the start and end 2s, this may for beat dataset only
-        audio_beat = bc_evaluator.load_audio(test_file["audio_path"], t_start=2 * 16000, t_end=int((t-60)/30*16000))
+        audio_beat  = bc_evaluator.load_audio(test_file["audio_path"], t_start=2 * 16000, t_end=int((t-60)/30*16000))
         motion_beat = bc_evaluator.load_motion(motion_position_pred, t_start=60, t_end=t-60, pose_fps=30, without_file=True)
         bc_evaluator.compute(audio_beat, motion_beat, length=t-120, pose_fps=30)
-        # audio_beat = bc_evaluator.load_audio(test_file["audio_path"], t_start=0 * 16000, t_end=int((t-0)/30*16000))
+        # audio_beat  = bc_evaluator.load_audio(test_file["audio_path"], t_start=0 * 16000, t_end=int((t-0)/30*16000))
         # motion_beat = bc_evaluator.load_motion(motion_position_pred, t_start=0, t_end=t-0, pose_fps=30, without_file=True)
         # bc_evaluator.compute(audio_beat, motion_beat, length=t-0, pose_fps=30)
 
         l1_evaluator.compute(motion_position_pred)
        
         # face_position_pred = get_motion_rep_numpy(motion_pred, device=device, expressions=expressions_pred, expression_only=True, betas=betas)["vertices"] # t -1
-        # face_position_gt = get_motion_rep_numpy(motion_gt, device=device, expressions=expressions_gt, expression_only=True, betas=betas)["vertices"]
+        # face_position_gt   = get_motion_rep_numpy(motion_gt, device=device, expressions=expressions_gt, expression_only=True, betas=betas)["vertices"]
         # lvd_evaluator.compute(face_position_pred, face_position_gt)
         # mse_evaluator.compute(face_position_pred, face_position_gt)
        
         # fgd requires rotation 6d representaiton
-        motion_gt = torch.from_numpy(motion_gt).to(device).unsqueeze(0)
+        motion_gt   = torch.from_numpy(motion_gt).to(device).unsqueeze(0)
         motion_pred = torch.from_numpy(motion_pred).to(device).unsqueeze(0)
-        motion_gt = rc.axis_angle_to_rotation_6d(motion_gt.reshape(1, t, 55, 3)).reshape(1, t, 55*6)
+        motion_gt   = rc.axis_angle_to_rotation_6d(motion_gt.reshape(1, t, 55, 3)).reshape(1, t, 55*6)
         motion_pred = rc.axis_angle_to_rotation_6d(motion_pred.reshape(1, t, 55, 3)).reshape(1, t, 55*6)
         fgd_evaluator.update(motion_pred.float(), motion_gt.float())
        
     metrics = {}
-    metrics["fgd"] = fgd_evaluator.compute()
-    metrics["bc"]  = bc_evaluator.avg()
-    metrics["l1"]  = l1_evaluator.avg()
+    metrics["fgd"]   = fgd_evaluator.compute()
+    metrics["bc"]    = bc_evaluator.avg()
+    metrics["l1"]    = l1_evaluator.avg()
     # metrics["lvd"] = lvd_evaluator.avg()
     # metrics["mse"] = mse_evaluator.avg()
     return metrics
