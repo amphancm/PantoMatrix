@@ -1,29 +1,29 @@
 import os
-import shutil
-import argparse
-import random
-import numpy as np
-from datetime import datetime
-from tqdm import tqdm
-import importlib
-import copy
-import librosa
-from pathlib import Path
 import json
 import time
+import copy
 import torch
+import wandb
+import shutil
+import random
+import librosa
+import argparse
+import importlib
+import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+import emage_utils.rotation_conversions as rc
+
+from tqdm import tqdm
+from pathlib import Path
+from datetime import datetime
+
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
-import wandb
-
 from diffusers.optimization import get_scheduler
 from omegaconf import OmegaConf
-
 from emage_evaltools.mertic import FGD, BC, L1div, LVDFace, MSEFace
 from emage_utils.motion_io import beat_format_load, beat_format_save, MASK_DICT, recover_from_mask
-import emage_utils.rotation_conversions as rc
 from emage_utils import fast_render
 from emage_utils.motion_rep_transfer import get_motion_rep_numpy
 from models.emage_audio import EmageVQVAEConv, EmageVAEConv, EmageVQModel, EmageAudioModel
@@ -31,22 +31,22 @@ from models.emage_audio import EmageVQVAEConv, EmageVAEConv, EmageVQModel, Emage
 
 # ---------------------------------  train,val,test fn here --------------------------------- #
 def inference_fn(cfg, model, device, test_path, save_path, **kwargs):
-    motion_vq = kwargs["motion_vq"]
+    motion_vq    = kwargs["motion_vq"]
     actual_model = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
     actual_model.eval()
-    test_list = []
+    test_list    = []
     for data_meta_path in test_path:
         test_list.extend(json.load(open(data_meta_path, "r")))
     test_list = [item for item in test_list if item.get("mode") == "test"]
-    seen_ids = set()
+    seen_ids  = set()
     test_list = [item for item in test_list if not (item["video_id"] in seen_ids or seen_ids.add(item["video_id"]))]
 
-    save_list = []
+    save_list  = []
     start_time = time.time()
     total_length = 0
     for test_file in tqdm(test_list, desc="Testing"):
         audio, _ = librosa.load(test_file["audio_path"], sr=cfg.audio_sr)
-        audio = torch.from_numpy(audio).to(device).unsqueeze(0)
+        audio    = torch.from_numpy(audio).to(device).unsqueeze(0)
         speaker_id = torch.zeros(1,1).to(device).long()
 
         # motion seed
@@ -60,19 +60,19 @@ def inference_fn(cfg, model, device, test_path, save_path, **kwargs):
         masked_motion = torch.cat([poses_6d, trans, foot_contact], dim=-1) # bs t 337
 
         # reconstrcution check
-        # latent_dict = motion_vq.map2latent(poses_6d, expression, tar_contact=foot_contact, tar_trans=trans)
-        # face_latent = latent_dict["face"]
+        # latent_dict  = motion_vq.map2latent(poses_6d, expression, tar_contact=foot_contact, tar_trans=trans)
+        # face_latent  = latent_dict["face"]
         # upper_latent = latent_dict["upper"]
         # lower_latent = latent_dict["lower"]
         # hands_latent = latent_dict["hands"]
         # face_index, upper_index, lower_index, hands_index = None, None, None, None
-        latent_dict = actual_model.inference(audio, speaker_id, motion_vq, masked_motion=masked_motion)
-        face_latent = latent_dict["rec_face"] if cfg.lf > 0 and cfg.cf == 0 else None
+        latent_dict  = actual_model.inference(audio, speaker_id, motion_vq, masked_motion=masked_motion)
+        face_latent  = latent_dict["rec_face"] if cfg.lf > 0 and cfg.cf == 0 else None
         upper_latent = latent_dict["rec_upper"] if cfg.lu > 0 and cfg.cu == 0 else None
         hands_latent = latent_dict["rec_hands"] if cfg.lh > 0 and cfg.ch == 0 else None
         lower_latent = latent_dict["rec_lower"] if cfg.ll > 0 and cfg.cl == 0 else None
         # print(latent_dict["rec_face"].shape,latent_dict["cls_upper"].shape)
-        face_index = torch.max(F.log_softmax(latent_dict["cls_face"], dim=2), dim=2)[1] if cfg.cf > 0 else None
+        face_index  = torch.max(F.log_softmax(latent_dict["cls_face"], dim=2), dim=2)[1] if cfg.cf > 0 else None
         upper_index = torch.max(F.log_softmax(latent_dict["cls_upper"], dim=2), dim=2)[1] if cfg.cu > 0 else None
         hands_index = torch.max(F.log_softmax(latent_dict["cls_hands"], dim=2), dim=2)[1] if cfg.ch > 0 else None
         lower_index = torch.max(F.log_softmax(latent_dict["cls_lower"], dim=2), dim=2)[1] if cfg.cl > 0 else None
@@ -84,9 +84,9 @@ def inference_fn(cfg, model, device, test_path, save_path, **kwargs):
        
         motion_pred = motion_all["motion_axis_angle"]
         t = motion_pred.shape[1]
-        motion_pred = motion_pred.cpu().numpy().reshape(t, -1)
+        motion_pred     = motion_pred.cpu().numpy().reshape(t, -1)
         expression_pred = motion_all["expression"].cpu().numpy().reshape(t, -1)
-        trans_pred = motion_all["trans"].cpu().numpy().reshape(t, -1)
+        trans_pred      = motion_all["trans"].cpu().numpy().reshape(t, -1)
         # print(motion_pred.shape, expression_pred.shape, trans_pred.shape)
         beat_format_save(os.path.join(save_path, f"{test_file['video_id']}_output.npz"), motion_pred, upsample=30//cfg.pose_fps, expressions=expression_pred, trans=trans_pred)
         save_list.append(
@@ -108,7 +108,7 @@ def get_rec_loss(motion_pred, motion_gt, lu, ll, lh, lf):
     rec_loss_upper = lu * F.mse_loss(motion_pred["rec_upper"], motion_gt["upper"])
     rec_loss_lower = ll * F.mse_loss(motion_pred["rec_lower"], motion_gt["lower"])
     rec_loss_hands = lh * F.mse_loss(motion_pred["rec_hands"], motion_gt["hands"])
-    rec_loss_face = lf * F.mse_loss(motion_pred["rec_face"], motion_gt["face"])
+    rec_loss_face  = lf * F.mse_loss(motion_pred["rec_face"], motion_gt["face"])
     return rec_loss_upper+rec_loss_lower+rec_loss_hands+rec_loss_face
 
 def get_cls_loss(motion_pred, motion_gt, cu, cl, ch, cf, ClsFn):
@@ -116,15 +116,15 @@ def get_cls_loss(motion_pred, motion_gt, cu, cl, ch, cf, ClsFn):
     pred_upper = F.log_softmax(motion_pred["cls_upper"], dim=2)
     pred_lower = F.log_softmax(motion_pred["cls_lower"], dim=2)
     pred_hands = F.log_softmax(motion_pred["cls_hands"], dim=2)
-    pred_face = F.log_softmax(motion_pred["cls_face"], dim=2)
+    pred_face  = F.log_softmax(motion_pred["cls_face"], dim=2)
     pred_upper = pred_upper.permute(0, 2, 1)  
     pred_lower = pred_lower.permute(0, 2, 1)
     pred_hands = pred_hands.permute(0, 2, 1)
-    pred_face = pred_face.permute(0, 2, 1)
+    pred_face  = pred_face.permute(0, 2, 1)
     cls_loss_upper = cu * ClsFn(pred_upper, motion_gt["upper"])
     cls_loss_lower = cl * ClsFn(pred_lower, motion_gt["lower"])
     cls_loss_hands = ch * ClsFn(pred_hands, motion_gt["hands"])
-    cls_loss_face = cf * ClsFn(pred_face, motion_gt["face"])
+    cls_loss_face  = cf * ClsFn(pred_face, motion_gt["face"])
     return cls_loss_upper+cls_loss_lower+cls_loss_hands+cls_loss_face
 
 def train_val_fn(cfg, batch, model, device, mode="train", **kwargs):
@@ -136,10 +136,10 @@ def train_val_fn(cfg, batch, model, device, mode="train", **kwargs):
 
     motion_vq = kwargs["motion_vq"]
     motion_gt = batch["motion"].to(device)
-    audio = batch["audio"].to(device)
+    audio     = batch["audio"].to(device)
     expressions_gt = batch["expressions"].to(device)
-    trans = batch["trans"].to(device)
-    foot_contact = batch["foot_contact"].to(device)
+    trans          = batch["trans"].to(device)
+    foot_contact   = batch["foot_contact"].to(device)
 
     bs, t, jc = motion_gt.shape
     j = jc // 3
@@ -147,7 +147,7 @@ def train_val_fn(cfg, batch, model, device, mode="train", **kwargs):
     motion_gt = rc.axis_angle_to_rotation_6d(motion_gt.reshape(bs,t,j,3)).reshape(bs, t, j*6)
    
     latent_index_dict = motion_vq.map2index(motion_gt, expressions_gt, tar_contact = foot_contact, tar_trans = trans)
-    latent_dict = motion_vq.map2latent(motion_gt, expressions_gt, tar_contact = foot_contact, tar_trans = trans)
+    latent_dict   = motion_vq.map2latent(motion_gt, expressions_gt, tar_contact = foot_contact, tar_trans = trans)
     masked_motion = torch.cat([motion_gt, trans, foot_contact], dim=-1)
     # forward use audio
     mask = torch.ones_like(masked_motion).to(device)
@@ -161,16 +161,16 @@ def train_val_fn(cfg, batch, model, device, mode="train", **kwargs):
   
     # forward use randon mask and audio
     mask_ratio = (kwargs["iteration"]/135*400) * 0.95 + 0.05  
-    mask = torch.rand(bs, t, cfg.model.pose_dims+3+4) < mask_ratio
-    mask = mask.float().to(device)
+    mask       = torch.rand(bs, t, cfg.model.pose_dims+3+4) < mask_ratio
+    mask       = mask.float().to(device)
     motion_pred_random_audio = model(audio, speaker_id, masked_motion=masked_motion, mask=mask, use_audio=True)
     loss_dict["rec_audio"] = get_rec_loss(motion_pred_random_audio, latent_dict, cfg.model.lu, cfg.model.ll, cfg.model.lh, cfg.model.lf)
     loss_dict["cls_audio"] = get_cls_loss(motion_pred_random_audio, latent_index_dict, cfg.model.cu, cfg.model.cl, cfg.model.ch, cfg.model.cf, kwargs["ClsFn"])
   
     # forward use random mask
     motion_pred_random_mask = model(audio, speaker_id, masked_motion=masked_motion, mask=mask, use_audio=False)
-    loss_dict["rec_mask"] = get_rec_loss(motion_pred_random_mask, latent_dict, cfg.model.lu, cfg.model.ll, cfg.model.lh, cfg.model.lf)
-    loss_dict["cls_mask"] = get_cls_loss(motion_pred_random_mask, latent_index_dict, cfg.model.cu, cfg.model.cl, cfg.model.ch, cfg.model.cf, kwargs["ClsFn"])
+    loss_dict["rec_mask"]   = get_rec_loss(motion_pred_random_mask, latent_dict, cfg.model.lu, cfg.model.ll, cfg.model.lh, cfg.model.lf)
+    loss_dict["cls_mask"]   = get_cls_loss(motion_pred_random_mask, latent_index_dict, cfg.model.cu, cfg.model.cl, cfg.model.ch, cfg.model.cf, kwargs["ClsFn"])
     
     all_loss = sum(loss_dict.values())
     loss_dict["all"] = all_loss
@@ -183,19 +183,19 @@ def train_val_fn(cfg, batch, model, device, mode="train", **kwargs):
         kwargs["lr_scheduler"].step()
 
     if mode == "val":
-        _, cls_face =  torch.max(F.log_softmax(motion_pred["cls_face"], dim=2), dim=2)
+        _, cls_face  =  torch.max(F.log_softmax(motion_pred["cls_face"], dim=2), dim=2)
         _, cls_upper =  torch.max(F.log_softmax(motion_pred["cls_upper"], dim=2), dim=2)
         _, cls_hands =  torch.max(F.log_softmax(motion_pred["cls_hands"], dim=2), dim=2)
         _, cls_lower =  torch.max(F.log_softmax(motion_pred["cls_lower"], dim=2), dim=2)
-        face_latent = motion_pred["rec_face"] if cfg.model.lf > 0 and cfg.model.cf == 0 else None
+        face_latent  = motion_pred["rec_face"] if cfg.model.lf > 0 and cfg.model.cf == 0 else None
         upper_latent = motion_pred["rec_upper"] if cfg.model.lu > 0 and cfg.model.cu == 0 else None
         hands_latent = motion_pred["rec_hands"] if cfg.model.lh > 0 and cfg.model.ch == 0 else None
         lower_latent = motion_pred["rec_lower"] if cfg.model.ll > 0 and cfg.model.cl == 0 else None
-        face_index = cls_face if cfg.model.cf > 0 else None
-        upper_index = cls_upper if cfg.model.cu > 0 else None
-        hands_index = cls_hands if cfg.model.ch > 0 else None
-        lower_index = cls_lower if cfg.model.cl > 0 else None
-        decode_dict = motion_vq.decode(
+        face_index   = cls_face if cfg.model.cf > 0 else None
+        upper_index  = cls_upper if cfg.model.cu > 0 else None
+        hands_index  = cls_hands if cfg.model.ch > 0 else None
+        lower_index  = cls_lower if cfg.model.cl > 0 else None
+        decode_dict  = motion_vq.decode(
             face_latent=face_latent, upper_latent=upper_latent, lower_latent=lower_latent, hands_latent=hands_latent,
             face_index=face_index, upper_index=upper_index, lower_index=lower_index, hands_index=hands_index,)
         motion_pred_rot6d = decode_dict["all_motion4inference"][:, :, :-7]
@@ -227,10 +227,10 @@ def main(cfg):
         )
 
     # init
-    face_motion_vq = EmageVQVAEConv.from_pretrained("H-Liu1997/emage_audio", subfolder="emage_vq/face").to(device)
-    upper_motion_vq = EmageVQVAEConv.from_pretrained("H-Liu1997/emage_audio", subfolder="emage_vq/upper").to(device)
-    lower_motion_vq = EmageVQVAEConv.from_pretrained("H-Liu1997/emage_audio", subfolder="emage_vq/lower").to(device)
-    hands_motion_vq = EmageVQVAEConv.from_pretrained("H-Liu1997/emage_audio", subfolder="emage_vq/hands").to(device)
+    face_motion_vq   = EmageVQVAEConv.from_pretrained("H-Liu1997/emage_audio", subfolder="emage_vq/face").to(device)
+    upper_motion_vq  = EmageVQVAEConv.from_pretrained("H-Liu1997/emage_audio", subfolder="emage_vq/upper").to(device)
+    lower_motion_vq  = EmageVQVAEConv.from_pretrained("H-Liu1997/emage_audio", subfolder="emage_vq/lower").to(device)
+    hands_motion_vq  = EmageVQVAEConv.from_pretrained("H-Liu1997/emage_audio", subfolder="emage_vq/hands").to(device)
     global_motion_ae = EmageVAEConv.from_pretrained("H-Liu1997/emage_audio", subfolder="emage_vq/global").to(device)
     motion_vq = EmageVQModel(
       face_model=face_motion_vq, upper_model=upper_motion_vq,
@@ -252,7 +252,7 @@ def main(cfg):
 
     # optimizer
     optimizer_cls = torch.optim.Adam
-    optimizer = optimizer_cls(
+    optimizer     = optimizer_cls(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=cfg.solver.learning_rate,
         betas=(cfg.solver.adam_beta1, cfg.solver.adam_beta2),
@@ -271,11 +271,11 @@ def main(cfg):
 
     # dataset
     train_dataset = init_class(cfg.data.name_pyfile, cfg.data.class_name, cfg, split='train')
-    test_dataset = init_class(cfg.data.name_pyfile, cfg.data.class_name, cfg, split='test')
+    test_dataset  = init_class(cfg.data.name_pyfile, cfg.data.class_name, cfg, split='test')
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-    test_sampler = torch.utils.data.distributed.DistributedSampler(test_dataset)
-    train_loader = DataLoader(train_dataset, batch_size=cfg.data.train_bs, sampler=train_sampler, drop_last=True, num_workers=8)
-    test_loader = DataLoader(test_dataset, batch_size=cfg.data.train_bs, sampler=test_sampler, drop_last=False, num_workers=8)
+    test_sampler  = torch.utils.data.distributed.DistributedSampler(test_dataset)
+    train_loader  = DataLoader(train_dataset, batch_size=cfg.data.train_bs, sampler=train_sampler, drop_last=True, num_workers=8)
+    test_loader   = DataLoader(test_dataset, batch_size=cfg.data.train_bs, sampler=test_sampler, drop_last=False, num_workers=8)
 
     # resume
     if cfg.resume_from_checkpoint:
@@ -289,19 +289,19 @@ def main(cfg):
     if cfg.test:
         iteration = 0
 
-    max_epochs = (cfg.solver.max_train_steps // len(train_loader)) + (1 if cfg.solver.max_train_steps % len(train_loader) != 0 else 0)
+    max_epochs  = (cfg.solver.max_train_steps // len(train_loader)) + (1 if cfg.solver.max_train_steps % len(train_loader) != 0 else 0)
     start_epoch = iteration // len(train_loader)
     start_step_in_epoch = iteration % len(train_loader)
-    fgd_evaluator = FGD(download_path="./emage_evaltools/")
-    bc_evaluator = BC(download_path="./emage_evaltools/", sigma=0.3, order=7)
-    l1div_evaluator= L1div()
-    lvd_evaluator = LVDFace()
-    mse_evaluator = MSEFace()
-    loss_meters = {}
+    fgd_evaluator   = FGD(download_path="./emage_evaltools/")
+    bc_evaluator    = BC(download_path="./emage_evaltools/", sigma=0.3, order=7)
+    l1div_evaluator = L1div()
+    lvd_evaluator   = LVDFace()
+    mse_evaluator   = MSEFace()
+    loss_meters     = {}
     loss_meters_val = {}
-    best_fgd_val = np.inf
+    best_fgd_val    = np.inf
     best_fgd_iteration_val= 0
-    best_fgd_test = np.inf
+    best_fgd_test   = np.inf
     best_fgd_iteration_test = 0
 
     # train loop
@@ -330,7 +330,7 @@ def main(cfg):
 
             # validation
             if iteration % cfg.validation.validation_steps == 0:
-                loss_meters = {}
+                loss_meters     = {}
                 loss_meters_val = {}
                 fgd_evaluator.reset()
                 pbar_val = tqdm(test_loader, leave=True)
@@ -385,28 +385,28 @@ def evaluation_fn(joint_mask, gt_list, pred_list, fgd_evaluator, bc_evaluator, l
         gt_dict = beat_format_load(test_file["motion_path"], joint_mask)
         pred_dict = beat_format_load(pred_file["motion_path"], joint_mask)
 
-        motion_gt = gt_dict["poses"]
-        motion_pred = pred_dict["poses"]
+        motion_gt      = gt_dict["poses"]
+        motion_pred    = pred_dict["poses"]
         expressions_gt = gt_dict["expressions"]
         expressions_pred = pred_dict["expressions"]
-        betas = gt_dict["betas"]
+        betas       = gt_dict["betas"]
         # motion_gt = recover_from_mask(motion_gt, joint_mask) # t1*165
         # motion_pred = recover_from_mask(motion_pred, joint_mask) # t2*165
     
         t = min(motion_gt.shape[0], motion_pred.shape[0])
-        motion_gt = motion_gt[:t]
-        motion_pred = motion_pred[:t]
-        expressions_gt = expressions_gt[:t]
+        motion_gt    = motion_gt[:t]
+        motion_pred  = motion_pred[:t]
+        expressions_gt   = expressions_gt[:t]
         expressions_pred = expressions_pred[:t]
        
         # bc and l1 require position representation
         motion_position_pred = get_motion_rep_numpy(motion_pred, device=device, betas=betas)["position"] # t*55*3
         motion_position_pred = motion_position_pred.reshape(t, -1)
         # ignore the start and end 2s, this may for beat dataset only
-        audio_beat = bc_evaluator.load_audio(test_file["audio_path"], t_start=2 * 16000, t_end=int((t-60)/30*16000))
+        audio_beat  = bc_evaluator.load_audio(test_file["audio_path"], t_start=2 * 16000, t_end=int((t-60)/30*16000))
         motion_beat = bc_evaluator.load_motion(motion_position_pred, t_start=60, t_end=t-60, pose_fps=30, without_file=True)
         bc_evaluator.compute(audio_beat, motion_beat, length=t-120, pose_fps=30)
-        # audio_beat = bc_evaluator.load_audio(test_file["audio_path"], t_start=0 * 16000, t_end=int((t-0)/30*16000))
+        # audio_beat  = bc_evaluator.load_audio(test_file["audio_path"], t_start=0 * 16000, t_end=int((t-0)/30*16000))
         # motion_beat = bc_evaluator.load_motion(motion_position_pred, t_start=0, t_end=t-0, pose_fps=30, without_file=True)
         # bc_evaluator.compute(audio_beat, motion_beat, length=t-0, pose_fps=30)
 
@@ -426,8 +426,8 @@ def evaluation_fn(joint_mask, gt_list, pred_list, fgd_evaluator, bc_evaluator, l
        
     metrics = {}
     metrics["fgd"] = fgd_evaluator.compute()
-    metrics["bc"] = bc_evaluator.avg()
-    metrics["l1"] = l1_evaluator.avg()
+    metrics["bc"]  = bc_evaluator.avg()
+    metrics["l1"]  = l1_evaluator.avg()
     metrics["lvd"] = lvd_evaluator.avg()
     metrics["mse"] = mse_evaluator.avg()
     return metrics
@@ -573,7 +573,7 @@ def init_env():
     parser.add_argument("--evaluation", action="store_true")
     parser.add_argument("--test", action="store_true")
     parser.add_argument('overrides', nargs=argparse.REMAINDER)
-    args = parser.parse_args()
+    args   = parser.parse_args()
     config = OmegaConf.load(args.config)
     config.exp_name = os.path.splitext(os.path.basename(args.config))[0]
 
