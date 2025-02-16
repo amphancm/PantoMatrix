@@ -1,6 +1,5 @@
 import os
 import time
-
 import torch
 import librosa
 import argparse
@@ -30,7 +29,7 @@ def inference(model, motion_vq, audio_path, device, save_folder, sr, pose_fps,):
         # masked_motion = torch.cat([poses_6d, trans, foot_contact], dim=-1) # bs t 337
         trans = torch.zeros(1, 1, 3).to(device)
 
-        latent_dict = model.inference(audio, speaker_id, motion_vq, masked_motion=None, mask=None)
+        latent_dict  = model.inference(audio, speaker_id, motion_vq, masked_motion=None, mask=None)
         
         face_latent  = latent_dict["rec_face"] if model.cfg.lf > 0 and model.cfg.cf == 0 else None
         upper_latent = latent_dict["rec_upper"] if model.cfg.lu > 0 and model.cfg.cu == 0 else None
