@@ -97,7 +97,7 @@ def train_val_fn(cfg, batch, model, device, mode="train", optimizer=None, lr_sch
     if mode == "train":
         optimizer.zero_grad()
     motion_gt = batch["motion"].to(device)
-    audio = batch["audio"].to(device)
+    audio     = batch["audio"].to(device)
     bs, t, jc = motion_gt.shape
     j = jc // 3
     speaker_id  = torch.zeros(bs,1).to(device).long()
@@ -157,7 +157,7 @@ def main(cfg):
 
     # optimizer
     optimizer_cls = torch.optim.Adam
-    optimizer = optimizer_cls(
+    optimizer     = optimizer_cls(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=cfg.solver.learning_rate,
         betas=(cfg.solver.adam_beta1, cfg.solver.adam_beta2),
@@ -343,7 +343,7 @@ def visualization_fn(pred_list, save_path, gt_list=None, only_check_one=True):
     else: # paired visualization, pad the translation
         for i in range(len(pred_list)):
             npz_pred = np.load(pred_list[i]["motion_path"], allow_pickle=True)
-            gt_file = [item for item in gt_list if item["video_id"] == pred_list[i]["video_id"]][0]
+            gt_file  = [item for item in gt_list if item["video_id"] == pred_list[i]["video_id"]][0]
             if not gt_file:
                 print(f"Missing prediction for {pred_list[i]['video_id']}")
                 continue
@@ -438,15 +438,15 @@ def save_last_and_best_ckpt(model, optimizer, lr_scheduler, iteration, save_dir,
     return previous_best, best_iteration
 
 def init_hf_class(module_name, class_name, config, **kwargs):
-    module = importlib.import_module(module_name)
+    module       = importlib.import_module(module_name)
     model_class  = getattr(module, class_name)
     config_class = model_class.config_class
-    config   = config_class(config_obj=config)
-    instance = model_class(config, **kwargs)
+    config       = config_class(config_obj=config)
+    instance     = model_class(config, **kwargs)
     return instance
 
 def init_class(module_name, class_name, config, **kwargs):
-    module = importlib.import_module(module_name)
+    module      = importlib.import_module(module_name)
     model_class = getattr(module, class_name)
     instance    = model_class(config, **kwargs)
     return instance
