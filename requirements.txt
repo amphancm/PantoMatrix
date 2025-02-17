@@ -45,6 +45,7 @@ imageio==2.33.0
 imageio-ffmpeg==0.4.9
 omegaconf==2.2.3
 open-clip-torch==2.20.0
+transformers
 #transformers==4.30.2
 #torchvision
 moviepy==1.0.3
