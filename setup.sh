@@ -13,6 +13,7 @@ source /content/py39/bin/activate
 
 # Upgrade pip
 pip install --upgrade pip==24.0
+pip install --upgrade pip setuptools wheel
 
 # Install Python dependencies
 #pip install -r ./pre-requirements.txt
