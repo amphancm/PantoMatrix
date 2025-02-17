@@ -1,6 +1,6 @@
 import os
 import torch
-import spaces
+#import spaces
 import librosa
 import numpy as np
 import gradio as gr
