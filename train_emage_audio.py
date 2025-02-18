@@ -210,7 +210,7 @@ def main(cfg):
     os.environ["WANDB_API_KEY"] = cfg.wandb_key
     local_rank = int(os.environ["LOCAL_RANK"]) if "LOCAL_RANK" in os.environ else 0
     torch.cuda.set_device(local_rank)
-    device = torch.device("cuda", local_rank)
+    device  = torch.device("cuda", local_rank)
     torch.distributed.init_process_group(backend="nccl")
     log_dir = os.path.join(cfg.output_dir, cfg.exp_name)
     experiment_ckpt_dir = os.path.join(log_dir, "checkpoints")
@@ -300,8 +300,8 @@ def main(cfg):
     loss_meters     = {}
     loss_meters_val = {}
     best_fgd_val    = np.inf
-    best_fgd_iteration_val= 0
-    best_fgd_test   = np.inf
+    best_fgd_iteration_val  = 0
+    best_fgd_test           = np.inf
     best_fgd_iteration_test = 0
 
     # train loop
@@ -580,7 +580,7 @@ def init_env():
     if args.overrides: config = OmegaConf.merge(config, OmegaConf.from_dotlist(args.overrides))
     if args.debug:
         config.wandb_project = "debug"
-        config.exp_name = "debug"
+        config.exp_name      = "debug"
         config.solver.max_train_steps = 4
     else:
         run_time = datetime.now().strftime("%Y%m%d-%H%M")
