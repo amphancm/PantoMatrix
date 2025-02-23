@@ -49,7 +49,7 @@ class BEAT2Dataset(data.Dataset):
         audio     = audio[sdx_audio:edx_audio]
              
         motion_tensor = torch.from_numpy(motion).float()
-        audio_tensor = torch.from_numpy(audio).float()
+        audio_tensor  = torch.from_numpy(audio).float()
        
         return dict(
             motion=motion_tensor,
