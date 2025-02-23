@@ -41,12 +41,12 @@ def inference_fn(cfg, model, device, test_path, save_path, **kwargs):
     seen_ids  = set()
     test_list = [item for item in test_list if not (item["video_id"] in seen_ids or seen_ids.add(item["video_id"]))]
 
-    save_list  = []
-    start_time = time.time()
+    save_list    = []
+    start_time   = time.time()
     total_length = 0
     for test_file in tqdm(test_list, desc="Testing"):
-        audio, _ = librosa.load(test_file["audio_path"], sr=cfg.audio_sr)
-        audio    = torch.from_numpy(audio).to(device).unsqueeze(0)
+        audio, _   = librosa.load(test_file["audio_path"], sr=cfg.audio_sr)
+        audio      = torch.from_numpy(audio).to(device).unsqueeze(0)
         speaker_id = torch.zeros(1,1).to(device).long()
 
         # motion seed
