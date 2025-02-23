@@ -382,7 +382,7 @@ def evaluation_fn(joint_mask, gt_list, pred_list, fgd_evaluator, bc_evaluator, l
             print(f"Missing prediction for {test_file['video_id']}")
             continue
         # print(test_file["motion_path"], pred_file["motion_path"])
-        gt_dict = beat_format_load(test_file["motion_path"], joint_mask)
+        gt_dict   = beat_format_load(test_file["motion_path"], joint_mask)
         pred_dict = beat_format_load(pred_file["motion_path"], joint_mask)
 
         motion_gt      = gt_dict["poses"]
